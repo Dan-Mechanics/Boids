@@ -81,28 +81,31 @@ namespace Boids
                 // APPLY RULES.
                 foreach (Boid boid in cell.Value)
                 {
+                   // boid.vel += GetConstrainForce(boid);
+                    //boid.vel += GetMotivationForce(boid);
+
                     friends.Remove(boid);
                     if (friends.Count > 0)
                     {
                         // YOU COULD IMPLEMENT INTERFACES HERE.
                         // MAY AFFECT PERFORMANCE.
-                     //   boid.vel += GetCohesionForce(boid, friends);
-                       boid.vel += GetSeparationForce(boid, friends);
-                       // boid.vel += GetConstrainForce(boid);
-                        boid.vel += GetMotivationForce(boid);
-                     //   boid.vel += GetAlignmentForce(boid, friends);
+                        boid.vel += GetCohesionForce(boid, friends);
+                        boid.vel += GetSeparationForce(boid, friends);
+                        boid.vel += GetAlignmentForce(boid, friends);
                     }
 
-                    // RENDER.
-                    boid.pos = boid.vel * Time.fixedDeltaTime;
-                    transforms[boid.index].position = boid.pos;
-                    transforms[boid.index].forward = boid.vel;
                     friends.Add(boid);
+
+                    // RENDER.
+                    boid.vel.Normalize();
+                    boid.pos += boid.vel * Time.fixedDeltaTime;
+                    transforms[boid.index].position = boid.pos;
+                    transforms[boid.index].forward = boid.vel.normalized;
                 }
             }
 
             // SORT.
-            foreach (KeyValuePair<Vector3Int, List<Boid>> cell in cells)
+            /*foreach (KeyValuePair<Vector3Int, List<Boid>> cell in cells)
             {
                 List<Boid> boids = cell.Value;
                 for (int i = boids.Count - 1; i >= 0; i--)
@@ -115,7 +118,7 @@ namespace Boids
                     cells[correctCell].Add(boids[i]);
                     boids.RemoveAt(i);
                 }
-            }
+            }*/
         }
 
         public Vector3Int GetCellPos(Vector3 pos, float size)
@@ -149,7 +152,7 @@ namespace Boids
             }
 
             force /= friends.Count;
-            return (force - boid.pos) * separation;
+            return (force) * separation;
         }
 
         private Vector3 GetAlignmentForce(Boid boid, List<Boid> friends)

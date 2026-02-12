@@ -438,7 +438,7 @@ MonoBehaviour:
   boidPrefab: {fileID: 5771313456612284527, guid: d4c280bdebad332448925340856abd94, type: 3}
   cam: {fileID: 793913442}
   food: {fileID: 422907708}
-  cellCountAcross: 6
+  cellCountAcross: 8
   boidsCount: 10
   bounds: 45
   speed: 5
