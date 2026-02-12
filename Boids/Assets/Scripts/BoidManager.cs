@@ -3,31 +3,34 @@ using UnityEngine;
 
 namespace Boids
 {
-    /// <summary>
-    /// Todo: enforce cosntant speed, debug all the bullshit, make more normalized and predictable
-    /// </summary>
     public class BoidManager : MonoBehaviour
     {
+        [Header("References")]
         [SerializeField] private GameObject boidPrefab = default;
-        [SerializeField] private Transform cam = default;
-        [SerializeField] private Transform food = default;
-        [SerializeField, Range(5, 50)] private int cellCountAcross = default;
-        [SerializeField, Min(5)] private int boidsCount = default;
-        [SerializeField, Min(0f)] private float bounds = default;
-        [SerializeField, Min(0f)] private float speed = default;
+        [SerializeField] private Transform pivot = default;
+        [SerializeField] private Transform target = default;
+        [SerializeField] private int cellCountAcross = default;
+        [SerializeField] private int boidsCount = default;
+        [SerializeField] private float boundsSize = default;
 
-        [SerializeField, Min(0f)] private float cohesion = default;
-        [SerializeField, Min(0f)] private float separation = default;
-        [SerializeField, Min(0f)] private float viewingRange = default;
-        [SerializeField, Min(0f)] private float alignment = default;
-        [SerializeField, Min(0f)] private float motivation = default;
-        [SerializeField, Min(0f)] private float constraint = default;
+        [Header("Settings")]
+        [SerializeField] private float impulseSpeed = default;
+        [SerializeField] private float maxSpeed = default;
+        [SerializeField] private float cohesion = default;
+        [SerializeField] private float separation = default;
+        [SerializeField] private float viewingRange = default;
+        [SerializeField] private float alignment = default;
+        [SerializeField] private float constraint = default;
+        [SerializeField] private float constraintMargin = default;
+        [SerializeField] private float motivation = default;
 
-        private readonly Dictionary<Vector3Int, List<Boid>> cells = new Dictionary<Vector3Int, List<Boid>>();
+        private Dictionary<Vector3Int, List<Boid>> cells;
         private Transform[] transforms;
 
         private void Start()
         {
+            // SPATIAL HASH.
+            cells = new Dictionary<Vector3Int, List<Boid>>();
             for (int x = 0; x < cellCountAcross; x++)
             {
                 for (int y = 0; y < cellCountAcross; y++)
@@ -39,21 +42,23 @@ namespace Boids
                 }
             }
 
+            // SETUP.
             transforms = new Transform[boidsCount];
             for (int i = 0; i < boidsCount; i++)
             {
-                Vector3 pos = new Vector3(Random.Range(0f, bounds), Random.Range(0f, bounds), Random.Range(0f, bounds));
-                Vector3 vel = Random.insideUnitSphere.normalized * speed;
-                cells[Vector3Int.zero].Add(new Boid() { pos = pos, vel = vel, index = i });
+                Vector3 pos = new Vector3(Random.Range(0f, boundsSize), Random.Range(0f, boundsSize), Random.Range(0f, boundsSize));
+                Vector3 vel = Random.insideUnitSphere.normalized * impulseSpeed;
+                Boid boid = new Boid(pos, vel, i);
 
-                Transform newBoid = Instantiate(boidPrefab).transform;
-                LookAt[] lookAts = newBoid.GetComponentsInChildren<LookAt>();
+                GameObject go = Instantiate(boidPrefab);
+                LookAt[] lookAts = go.GetComponentsInChildren<LookAt>();
                 for (int j = 0; j < lookAts.Length; j++)
                 {
-                    lookAts[j].SetTarget(food);
+                    lookAts[j].SetTarget(target);
                 }
 
-                transforms[i] = newBoid;
+                cells[Vector3Int.zero].Add(boid);
+                transforms[i] = go.transform;
             }
         }
 
@@ -61,8 +66,8 @@ namespace Boids
         {
             foreach (KeyValuePair<Vector3Int, List<Boid>> cell in cells)
             {
-                // FIND FRIENDS.
-                List<Boid> friends = new List<Boid>();
+                // FIND NEIGHBOURS.
+                List<Boid> neighbours = new List<Boid>();
                 for (int x = -1; x <= 1; x++)
                 {
                     for (int y = -1; y <= 1; y++)
@@ -73,7 +78,7 @@ namespace Boids
                             if (!cells.ContainsKey(cellPos))
                                 continue;
 
-                            friends.AddRange(cells[cellPos]);
+                            neighbours.AddRange(cells[cellPos]);
                         }
                     }
                 }
@@ -81,119 +86,134 @@ namespace Boids
                 // APPLY RULES.
                 foreach (Boid boid in cell.Value)
                 {
-                   // boid.vel += GetConstrainForce(boid);
-                    //boid.vel += GetMotivationForce(boid);
+                    boid.vel += GetConstrainForce(boid);
+                    boid.vel += GetMotivationForce(boid);
 
-                    friends.Remove(boid);
-                    if (friends.Count > 0)
+                    neighbours.Remove(boid);
+                    if (neighbours.Count > 0)
                     {
-                        // YOU COULD IMPLEMENT INTERFACES HERE.
-                        // MAY AFFECT PERFORMANCE.
-                        boid.vel += GetCohesionForce(boid, friends);
-                        boid.vel += GetSeparationForce(boid, friends);
-                        boid.vel += GetAlignmentForce(boid, friends);
+                        boid.vel += GetCohesionForce(boid, neighbours);
+                        boid.vel += GetSeparationForce(boid, neighbours);
+                        boid.vel += GetAlignmentForce(boid, neighbours);
                     }
 
-                    friends.Add(boid);
+                    neighbours.Add(boid);
 
-                    // RENDER.
-                    boid.vel.Normalize();
+                    boid.vel = Vector3.ClampMagnitude(boid.vel, maxSpeed);
                     boid.pos += boid.vel * Time.fixedDeltaTime;
                     transforms[boid.index].position = boid.pos;
-                    transforms[boid.index].forward = boid.vel.normalized;
+                    transforms[boid.index].forward = boid.vel;
                 }
             }
 
-            // SORT.
-            /*foreach (KeyValuePair<Vector3Int, List<Boid>> cell in cells)
+            // SORT CELLS.
+            foreach (KeyValuePair<Vector3Int, List<Boid>> cell in cells)
             {
                 List<Boid> boids = cell.Value;
                 for (int i = boids.Count - 1; i >= 0; i--)
                 {
-                    boids[i].Constrain(bounds);
-                    Vector3Int correctCell = GetCellPos(boids[i].pos, bounds);
+                    Constrain(boids[i]);
+
+                    Vector3Int correctCell = GetCellPos(boids[i].pos, boundsSize);
                     if (correctCell == cell.Key)
                         continue;
 
                     cells[correctCell].Add(boids[i]);
                     boids.RemoveAt(i);
                 }
-            }*/
+            }
         }
 
-        public Vector3Int GetCellPos(Vector3 pos, float size)
+        public Vector3Int GetCellPos(Vector3 worldPos, float size)
         {
             return new Vector3Int(
-                Mathf.FloorToInt(pos.x / size),
-                Mathf.FloorToInt(pos.y / size),
-                Mathf.FloorToInt(pos.z / size));
+                Mathf.FloorToInt(worldPos.x / size),
+                Mathf.FloorToInt(worldPos.y / size),
+                Mathf.FloorToInt(worldPos.z / size));
         }
 
-        private Vector3 GetCohesionForce(Boid boid, List<Boid> friends)
+        private Vector3 GetCohesionForce(Boid self, List<Boid> neighbours)
         {
-            Vector3 avPos = friends[0].pos;
-            for (int i = 1; i < friends.Count; i++)
+            Vector3 avPos = neighbours[0].pos;
+            for (int i = 1; i < neighbours.Count; i++)
             {
-                avPos += friends[i].pos;
+                avPos += neighbours[i].pos;
             }
 
-            avPos /= friends.Count;
-            return (avPos - boid.pos) * cohesion;
+            avPos /= neighbours.Count;
+            return (avPos - self.pos) * cohesion;
         }
 
-        private Vector3 GetSeparationForce(Boid boid, List<Boid> friends)
+        private Vector3 GetSeparationForce(Boid self, List<Boid> neighbours)
         {
             Vector3 force = Vector3.zero;
-            for (int i = 0; i < friends.Count; i++)
+            for (int i = 0; i < neighbours.Count; i++)
             {
-                Boid friend = friends[i];
-                if (Vector3.Distance(boid.pos, friend.pos) < viewingRange)
-                    force -= friend.pos - boid.pos;
+                if (Vector3.Distance(self.pos, neighbours[i].pos) <= viewingRange)
+                    force -= neighbours[i].pos - self.pos;
             }
 
-            force /= friends.Count;
-            return (force) * separation;
+            force /= neighbours.Count;
+            return force * separation;
         }
 
-        private Vector3 GetAlignmentForce(Boid boid, List<Boid> friends)
+        private Vector3 GetAlignmentForce(Boid self, List<Boid> neighbours)
         {
-            Vector3 avVel = friends[0].vel;
-            for (int i = 1; i < friends.Count; i++)
+            Vector3 avVel = neighbours[0].vel;
+            for (int i = 1; i < neighbours.Count; i++)
             {
-                avVel += friends[i].vel;
+                avVel += neighbours[i].vel;
             }
 
-            avVel /= friends.Count;
-            return (avVel - boid.vel) * alignment;
+            avVel /= neighbours.Count;
+            return (avVel - self.vel) * alignment;
         }
 
         private Vector3 GetMotivationForce(Boid boid)
         {
-            return (food.position - boid.pos).normalized * motivation;
+            return (target.position - boid.pos).normalized * motivation;
         }
 
         private Vector3 GetConstrainForce(Boid boid)
         {
             Vector3 force = Vector3.zero;
-            if (boid.pos.x < 0f)
-                force.x = 1f;
+            if (boid.pos.x < constraintMargin)
+                force.x = constraintMargin - boid.pos.x;
+            else if (boid.pos.x > boundsSize - constraintMargin)
+                force.x = boundsSize - constraintMargin - boid.pos.x;
 
-            if (boid.pos.x > bounds)
-                force.x = -1f;
+            if (boid.pos.y < constraintMargin)
+                force.y = constraintMargin - boid.pos.y;
+            else if (boid.pos.y > boundsSize - constraintMargin)
+                force.y = boundsSize - constraintMargin - boid.pos.y;
 
-            if (boid.pos.y < 0f)
-                force.y = 1f;
-
-            if (boid.pos.y > bounds)
-                force.y = -1f;
-
-            if (boid.pos.z < 0f)
-                force.z = 1f;
-
-            if (boid.pos.z > bounds)
-                force.z = -1f;
+            if (boid.pos.z < constraintMargin)
+                force.z = constraintMargin - boid.pos.z;
+            else if (boid.pos.z > boundsSize - constraintMargin)
+                force.z = boundsSize - constraintMargin - boid.pos.z;
 
             return force * constraint;
+        }
+
+        private void Constrain(Boid boid)
+        {
+            if (boid.pos.x < 0f)
+                boid.pos.x = 0f;
+
+            if (boid.pos.x > boundsSize)
+                boid.pos.x = boundsSize;
+
+            if (boid.pos.y < 0f)
+                boid.pos.y = 0f;
+
+            if (boid.pos.y > boundsSize)
+                boid.pos.y = boundsSize;
+
+            if (boid.pos.z < 0f)
+                boid.pos.z = 0f;
+
+            if (boid.pos.z > boundsSize)
+                boid.pos.z = boundsSize;
         }
 
         /// <summary>
@@ -201,8 +221,8 @@ namespace Boids
         /// </summary>
         private void OnDrawGizmos()
         {
-            float cellSize = bounds / cellCountAcross;
-            Gizmos.color = new Color(0f, 1f, 0f, 0.05f);
+            float cellSize = boundsSize / cellCountAcross;
+            Gizmos.color = new Color(0f, 1f, 0f, 0.01f);
 
             for (int x = 0; x < cellCountAcross; x++)
             {
@@ -216,12 +236,13 @@ namespace Boids
             }
 
             Gizmos.color = Color.white;
-            Gizmos.DrawWireCube(0.5f * bounds * Vector3.one, Vector3.one * bounds);
+            Gizmos.DrawWireCube(0.5f * boundsSize * Vector3.one, Vector3.one * boundsSize);
         }
 
         private void OnValidate()
         {
-            cam.position = 0.5f * bounds * Vector3.one - cam.forward * bounds;
+            pivot.position = 0.5f * boundsSize * Vector3.one;
+            pivot.GetChild(0).localPosition = Vector3.back * boundsSize;
         }
     }
 }
