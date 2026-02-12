@@ -490,11 +490,11 @@ MonoBehaviour:
   impulseSpeed: 15
   maxSpeed: 10
   cohesion: 0.01
-  separation: 50
-  viewingRange: 5
+  separation: 80
+  viewingRange: 4.5
   alignment: 0.15
-  constraint: 0.2
-  constraintMargin: 5
+  constraint: 0.18
+  constraintMargin: 6
   motivation: 0.1
 --- !u!4 &1812637580
 Transform:
